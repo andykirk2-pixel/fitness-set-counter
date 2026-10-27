@@ -79,12 +79,27 @@
   .pct-grid input { text-align: center; }
   .hint { color: var(--muted); font-size: 14px; margin: 0 0 10px; }
 
-  /* Bottom tabs */
-  nav {
-    position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+  .rest-row { margin-top: 10px; }
+
+  /* Bottom area: rest timer + tabs */
+  .bottom {
+    position: fixed; left: 0; right: 0; bottom: 0;
     background: var(--card); border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
   }
+  body.resting { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+  #timer {
+    display: none; align-items: center; gap: 8px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+  }
+  body.resting #timer { display: flex; }
+  #timer-text { flex: 1; font-size: 15px; color: var(--muted); }
+  #timer-time { display: block; font-size: 30px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.1; }
+  #timer button { font-size: 16px; padding: 10px 12px; background: var(--bg); color: var(--text); border-radius: 10px; }
+  #timer.over { background: var(--good); }
+  #timer.over #timer-text, #timer.over #timer-time { color: #fff; }
+  #timer.over .adjust { display: none; }
+  nav { display: flex; }
   nav button {
     flex: 1; background: transparent; color: var(--muted); border-radius: 0;
     padding: 16px 0 18px; font-size: 16px;
@@ -144,16 +159,28 @@
       <label for="new-name">Name</label>
       <input id="new-name" type="text" placeholder="e.g. Cable fly">
       <div class="pct-grid" id="new-pcts"></div>
+      <div class="rest-row">
+        <label for="new-rest">Rest between sets (seconds)</label>
+        <input id="new-rest" type="number" inputmode="numeric" min="0" step="15" value="90">
+      </div>
       <button class="wide" id="add-exercise">Add exercise</button>
     </div>
   </section>
 </main>
 
-<nav>
-  <button data-tab="progress" class="active">Progress</button>
-  <button data-tab="log">Log</button>
-  <button data-tab="settings">Settings</button>
-</nav>
+<div class="bottom">
+  <div id="timer">
+    <div id="timer-text">Rest<span id="timer-time">0:00</span></div>
+    <button class="adjust" id="timer-minus">−15</button>
+    <button class="adjust" id="timer-plus">+15</button>
+    <button id="timer-close">Skip</button>
+  </div>
+  <nav>
+    <button data-tab="progress" class="active">Progress</button>
+    <button data-tab="log">Log</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+</div>
 
 <script>
 const MUSCLES = ["chest", "back", "biceps", "triceps", "shoulders", "legs"];
@@ -161,26 +188,28 @@ const NICE = { chest: "Chest", back: "Back", biceps: "Biceps", triceps: "Triceps
 const STORAGE_KEY = "set-counter-v1";
 
 // Starter exercises. Numbers are how much one set counts for each muscle (1 = full set, 0.5 = half).
+// The last number is the rest time in seconds.
 const STARTER_EXERCISES = [
-  ["Bench press",            { chest: 1, triceps: 0.5 }],
-  ["Push-ups",               { chest: 1, triceps: 0.5 }],
-  ["Incline dumbbell press", { chest: 1, shoulders: 0.5, triceps: 0.5 }],
-  ["Dips",                   { chest: 0.5, triceps: 1 }],
-  ["Pull-ups",               { back: 1, biceps: 0.5 }],
-  ["Lat pulldown",           { back: 1, biceps: 0.5 }],
-  ["Barbell row",            { back: 1, biceps: 0.5 }],
-  ["Shoulder press",         { shoulders: 1, triceps: 0.5 }],
-  ["Lateral raise",          { shoulders: 1 }],
-  ["Bicep curl",             { biceps: 1 }],
-  ["Hammer curl",            { biceps: 1 }],
-  ["Tricep pushdown",        { triceps: 1 }],
-  ["Skull crushers",         { triceps: 1 }],
-  ["Squat",                  { legs: 1 }],
-  ["Leg press",              { legs: 1 }],
-  ["Lunges",                 { legs: 1 }],
-  ["Deadlift",               { legs: 1, back: 0.5 }],
-  ["Romanian deadlift",      { legs: 1, back: 0.25 }],
+  ["Bench press",            { chest: 1, triceps: 0.5 }, 180],
+  ["Push-ups",               { chest: 1, triceps: 0.5 }, 90],
+  ["Incline dumbbell press", { chest: 1, shoulders: 0.5, triceps: 0.5 }, 120],
+  ["Dips",                   { chest: 0.5, triceps: 1 }, 120],
+  ["Pull-ups",               { back: 1, biceps: 0.5 }, 120],
+  ["Lat pulldown",           { back: 1, biceps: 0.5 }, 120],
+  ["Barbell row",            { back: 1, biceps: 0.5 }, 120],
+  ["Shoulder press",         { shoulders: 1, triceps: 0.5 }, 120],
+  ["Lateral raise",          { shoulders: 1 }, 60],
+  ["Bicep curl",             { biceps: 1 }, 60],
+  ["Hammer curl",            { biceps: 1 }, 60],
+  ["Tricep pushdown",        { triceps: 1 }, 60],
+  ["Skull crushers",         { triceps: 1 }, 60],
+  ["Squat",                  { legs: 1 }, 180],
+  ["Leg press",              { legs: 1 }, 150],
+  ["Lunges",                 { legs: 1 }, 90],
+  ["Deadlift",               { legs: 1, back: 0.5 }, 180],
+  ["Romanian deadlift",      { legs: 1, back: 0.25 }, 150],
 ];
+const DEFAULT_REST = 90;
 
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
@@ -189,15 +218,25 @@ function defaultState() {
   MUSCLES.forEach(m => targets[m] = 10);
   return {
     targets,
-    exercises: STARTER_EXERCISES.map(([name, split]) => ({ id: newId(), name, split })),
+    exercises: STARTER_EXERCISES.map(([name, split, rest]) => ({ id: newId(), name, split, rest })),
     sets: [],
+    restEnd: null,
   };
 }
 
 function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && saved.exercises) return saved;
+    if (saved && saved.exercises) {
+      // Data saved before rest times existed: give each exercise its starter rest time, or the default.
+      saved.exercises.forEach(e => {
+        if (e.rest == null) {
+          const starter = STARTER_EXERCISES.find(([name]) => name === e.name);
+          e.rest = starter ? starter[2] : DEFAULT_REST;
+        }
+      });
+      return saved;
+    }
   } catch (e) {}
   return defaultState();
 }
@@ -309,6 +348,7 @@ document.getElementById("add-set").addEventListener("click", () => {
   if (!ex) return;
   if (!reps || reps < 1) { flash.style.color = "var(--danger)"; flash.textContent = "Please enter the reps."; return; }
   state.sets.push({ id: newId(), exId, exName: ex.name, split: { ...ex.split }, weight, reps, date: new Date().toISOString() });
+  startRest(ex.rest || DEFAULT_REST);
   save();
   renderAll();
   flash.style.color = "";
@@ -361,11 +401,20 @@ function renderExerciseList() {
     <details data-ex="${e.id}" ${open.has(e.id) ? "open" : ""}>
       <summary>${escapeHtml(e.name)}<span>${summaryText(e.split)}</span></summary>
       <div class="pct-grid">${pctInputs(e.split, "data-pct")}</div>
+      <div class="rest-row">
+        <label>Rest between sets (seconds)</label>
+        <input type="number" inputmode="numeric" min="0" step="15" value="${e.rest}" data-rest>
+      </div>
       <button class="del" data-del-ex="${e.id}" style="margin-top:10px">Delete exercise</button>
     </details>`).join("");
 }
 
 document.getElementById("exercise-list").addEventListener("change", e => {
+  if (e.target.hasAttribute("data-rest")) {
+    findExercise(e.target.closest("details").dataset.ex).rest = Math.max(0, parseInt(e.target.value, 10) || 0);
+    save();
+    return;
+  }
   const m = e.target.dataset.pct;
   if (!m) return;
   const ex = findExercise(e.target.closest("details").dataset.ex);
@@ -399,13 +448,55 @@ document.getElementById("add-exercise").addEventListener("click", () => {
     if (v) split[inp.dataset.newPct] = v;
   });
   if (!Object.keys(split).length) { alert("Please give at least one muscle a percentage, e.g. 100."); return; }
-  state.exercises.push({ id: newId(), name, split });
+  const restInput = document.getElementById("new-rest");
+  const rest = Math.max(0, parseInt(restInput.value, 10) || 0);
+  state.exercises.push({ id: newId(), name, split, rest });
   save();
   nameInput.value = "";
+  restInput.value = DEFAULT_REST;
   document.querySelectorAll("[data-new-pct]").forEach(inp => inp.value = 0);
   renderAll();
   alert(`"${name}" added.`);
 });
+
+// ---- Rest timer ----
+// The finish time is saved, so the timer stays right even if the phone locks or the app is closed.
+let timerTick = null;
+
+function startRest(seconds) {
+  state.restEnd = seconds > 0 ? Date.now() + seconds * 1000 : null;
+  save();
+  renderTimer();
+}
+
+function renderTimer() {
+  clearInterval(timerTick);
+  const box = document.getElementById("timer");
+  if (!state.restEnd) { document.body.classList.remove("resting"); return; }
+  document.body.classList.add("resting");
+  const update = () => {
+    const left = Math.ceil((state.restEnd - Date.now()) / 1000);
+    const over = left <= 0;
+    box.classList.toggle("over", over);
+    document.getElementById("timer-text").firstChild.textContent = over ? "Rest over" : "Rest";
+    const s = Math.max(0, left);
+    document.getElementById("timer-time").textContent = over ? "Go!" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+    document.getElementById("timer-close").textContent = over ? "OK" : "Skip";
+    if (over) clearInterval(timerTick);
+  };
+  update();
+  timerTick = setInterval(update, 250);
+}
+
+function adjustRest(seconds) {
+  state.restEnd = Math.max(Date.now(), state.restEnd + seconds * 1000);
+  save();
+  renderTimer();
+}
+
+document.getElementById("timer-minus").addEventListener("click", () => adjustRest(-15));
+document.getElementById("timer-plus").addEventListener("click", () => adjustRest(15));
+document.getElementById("timer-close").addEventListener("click", () => startRest(0));
 
 // ---- Tabs ----
 const TITLES = { progress: "This week", log: "Log a set", settings: "Settings" };
@@ -427,10 +518,11 @@ function renderAll() {
 }
 
 // Refresh when coming back to the app (e.g. a new week started while it was in the background).
-document.addEventListener("visibilitychange", () => { if (!document.hidden) renderProgress(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderProgress(); renderTimer(); } });
 
 save();
 renderAll();
+renderTimer();
 </script>
 </body>
 </html>
